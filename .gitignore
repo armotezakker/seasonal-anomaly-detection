@@ -1,0 +1,29 @@
+# Python environment
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Raw data (NAB benchmark files pulled locally via scripts/fetch_data.sh, not
+# redistributed here) and processed derivatives
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Generated figures (kept locally, selected ones committed under reports/)
+reports/figures/*
+!reports/figures/.gitkeep
+
+# Credentials and secrets
+*.env
+.env
+secrets.yaml
+*_secret*
+*.key
+kaggle.json
+.kaggle/
+
+# Tooling
+.pytest_cache/
+.DS_Store
