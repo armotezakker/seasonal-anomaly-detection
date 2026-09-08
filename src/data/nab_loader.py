@@ -69,3 +69,67 @@ def sampling_step(df: pd.DataFrame) -> pd.Timedelta:
     """
     step = df["timestamp"].diff().median()
     return pd.Timedelta(step)
+
+
+def modal_step(df: pd.DataFrame) -> pd.Timedelta:
+    """Most common spacing between consecutive timestamps.
+
+    Preferred over the median when a series has many short gaps: the mode is the
+    sensor's real reporting interval, which is what the resampling grid should
+    use.
+    """
+    diffs = df["timestamp"].diff().dropna()
+    return pd.Timedelta(diffs.value_counts().idxmax())
+
+
+def resample_to_grid(df: pd.DataFrame, method: str = "linear"):
+    """Put a series on a complete grid at its modal sampling interval.
+
+    STL needs a gap-free series on a fixed frequency. This bins every
+    observation into a grid slot (`resample(...).mean()`, so no observation is
+    dropped even when its timestamp sits slightly off the grid), then fills the
+    slots that had no observation.
+
+    Returns
+    -------
+    series : pandas.Series
+        Float series, complete DatetimeIndex at `step`, no NaN, `index.freq` set.
+    filled : pandas.Series of bool
+        True where the slot held no observation and was filled. Aligned to
+        `series`. Callers should exclude these timestamps from detector output
+        (nothing was measured there) and compute residual statistics from the
+        observed slots only.
+    step : pandas.Timedelta
+        The modal sampling interval used for the grid.
+
+    Gap filling
+    -----------
+    `method="linear"` (default) linearly interpolates filled slots.
+    `method="ffill"` carries the last observation forward.
+
+    Linear interpolation is the default because forward fill creates flat
+    plateaus that STL reads as a genuine low-variance stretch followed by a
+    step, which distorts the seasonal and trend fit near every gap. The cost of
+    linear interpolation is that a long gap becomes a straight ramp carrying no
+    daily cycle, so STL still imposes a seasonal wave on stretches where there
+    is no data. This is acceptable only because filled timestamps are barred
+    from being flagged; residuals at genuine observations within about one
+    period of a long gap are still affected, which is a real limitation on the
+    two realTraffic series (roughly half their grid is filled, with one gap of
+    about 3.5 days) and a minor one on ambient_temperature (two multi-day gaps).
+    The cleaner alternative, splitting a series at long gaps and decomposing
+    each segment, fragments the trend estimate and needs every segment to span
+    at least two periods; it is left as future work.
+    """
+    s = df.set_index("timestamp")["value"].sort_index()
+    step = modal_step(df)
+    on_grid = s.resample(step, origin="start").mean()
+    filled = on_grid.isna()
+    if method == "linear":
+        on_grid = on_grid.interpolate("linear", limit_direction="both")
+    elif method == "ffill":
+        on_grid = on_grid.ffill().bfill()
+    else:
+        raise ValueError(f"unknown method: {method!r}")
+    on_grid.index.freq = step
+    return on_grid.astype(float), filled, step
