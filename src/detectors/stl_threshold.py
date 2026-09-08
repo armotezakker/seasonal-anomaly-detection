@@ -40,6 +40,39 @@ ROBUST = True
 
 
 @dataclass
+class STLDecomposition:
+    """The pieces of one STL fit, as plain arrays aligned to the input grid."""
+
+    period: int
+    robust: bool
+    trend: np.ndarray = field(repr=False)
+    seasonal: np.ndarray = field(repr=False)
+    residual: np.ndarray = field(repr=False)
+    fitted: np.ndarray = field(repr=False)  # trend + seasonal
+
+
+def stl_decompose(series: pd.Series, period: int, robust: bool = ROBUST) -> STLDecomposition:
+    """Run one STL fit and return trend, seasonal, residual and their sum.
+
+    Kept separate from the thresholding so that the same residual can be fed to
+    different residual-scale rules (global vs local) without re-deciding the
+    decomposition.
+    """
+    stl = STL(series, period=period, robust=robust).fit()
+    trend = np.asarray(stl.trend, dtype=float)
+    seasonal = np.asarray(stl.seasonal, dtype=float)
+    residual = np.asarray(stl.resid, dtype=float)
+    return STLDecomposition(
+        period=period,
+        robust=robust,
+        trend=trend,
+        seasonal=seasonal,
+        residual=residual,
+        fitted=trend + seasonal,
+    )
+
+
+@dataclass
 class STLThresholdResult:
     period: int
     k: float
@@ -95,11 +128,10 @@ def decompose_and_detect(
     else:
         observed = ~np.asarray(filled, dtype=bool)
 
-    stl = STL(series, period=period, robust=robust).fit()
-    trend = np.asarray(stl.trend, dtype=float)
-    seasonal = np.asarray(stl.seasonal, dtype=float)
-    residual = np.asarray(stl.resid, dtype=float)
-    fitted = trend + seasonal
+    decomp = stl_decompose(series, period=period, robust=robust)
+    trend, seasonal, residual, fitted = (
+        decomp.trend, decomp.seasonal, decomp.residual, decomp.fitted,
+    )
 
     resid_obs = residual[observed & np.isfinite(residual)]
     resid_mean = float(np.mean(resid_obs))
